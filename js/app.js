@@ -1,7 +1,7 @@
-import { MODELS, LABEL_OPEN, LABEL_CLOSED, RULES } from "./config.js";
+import { MODELS, LABEL_OPEN, LABEL_CLOSED, LABEL_NONE, RULES } from "./config.js";
 import { initStorage, saveSession, getLeaderboard, getSessions } from "./storage.js";
 
-/* global tmPose */
+/* global tmPose, tmImage */
 const $ = (id) => document.getElementById(id);
 const SIZE = 300;
 const TESTS_KEY = "wakkerwacht.tests";
@@ -82,7 +82,8 @@ $("startBtn").onclick = async () => {
     audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
     audioCtx.resume();
 
-    model = await tmPose.load(modelInfo.url + "model.json", modelInfo.url + "metadata.json");
+    const lib = modelInfo.type === "pose" ? tmPose : tmImage;
+    model = await lib.load(modelInfo.url + "model.json", modelInfo.url + "metadata.json");
     labels = model.getClassLabels();
 
     webcam = new tmPose.Webcam(SIZE, SIZE, true);
@@ -142,8 +143,14 @@ $("stopBtn").onclick = async () => {
 // ---------- Main loop ----------
 async function loop() {
   webcam.update();
-  const { pose, posenetOutput } = await model.estimatePose(webcam.canvas);
-  const prediction = await model.predict(posenetOutput);
+  let pose = null, prediction;
+  if (modelInfo.type === "pose") {
+    const r = await model.estimatePose(webcam.canvas);
+    pose = r.pose;
+    prediction = await model.predict(r.posenetOutput);
+  } else {
+    prediction = await model.predict(webcam.canvas);
+  }
   lastPrediction = prediction;
 
   const now = performance.now();
@@ -167,10 +174,16 @@ async function loop() {
 
 // Ruwe toestand van deze frame: geen persoon / open / dicht / onzeker
 function classify(pose, prediction) {
-  if (!pose) return "geen";
-  const kp = Object.fromEntries(pose.keypoints.map((k) => [k.part, k.score]));
-  const visible = ["nose", "leftEye", "rightEye"].every((p) => (kp[p] || 0) >= RULES.minKeypointScore);
-  if (!visible) return "geen";
+  if (modelInfo.type === "pose") {
+    // Pose: neus + beide ogen moeten zichtbaar zijn
+    if (!pose) return "geen";
+    const kp = Object.fromEntries(pose.keypoints.map((k) => [k.part, k.score]));
+    const visible = ["nose", "leftEye", "rightEye"].every((p) => (kp[p] || 0) >= RULES.minKeypointScore);
+    if (!visible) return "geen";
+  }
+  // Image: optionele klasse "geen persoon" in het model
+  const none = prediction.find((x) => LABEL_NONE.test(x.className));
+  if (none && none.probability >= threshold) return "geen";
   const p = Object.fromEntries(prediction.map((x) => [x.className, x.probability]));
   if ((p[LABEL_OPEN] || 0) >= threshold) return "open";
   if ((p[LABEL_CLOSED] || 0) >= threshold) return "dicht";
@@ -382,7 +395,8 @@ function writeTests(t) { try { localStorage.setItem(TESTS_KEY, JSON.stringify(t)
 let testDirty = 0;
 function recordTest(prediction) {
   const top = prediction.reduce((a, b) => (b.probability > a.probability ? b : a));
-  const predicted = top.className === LABEL_OPEN ? "open" : top.className === LABEL_CLOSED ? "dicht" : top.className;
+  const predicted = top.className === LABEL_OPEN ? "open" : top.className === LABEL_CLOSED ? "dicht" : null;
+  if (!predicted) return; // bv. klasse "geen persoon" telt niet mee in de test
   const confident = top.probability >= threshold;
   const all = readTests();
   const m = (all[modelInfo.id] ||= { name: modelInfo.name, open: { open: 0, dicht: 0, unsure: 0 }, dicht: { open: 0, dicht: 0, unsure: 0 } });

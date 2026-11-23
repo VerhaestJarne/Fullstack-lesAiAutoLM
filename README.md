@@ -47,12 +47,16 @@ Zonder config draait de app in **lokale modus** (localStorage), herkenbaar aan d
 | `js/app.js` | camera, voorspelling, spelregels, testmodus |
 | `js/config.js` | Supabase-sleutels, modellen, drempels en regels |
 | `js/storage.js` | Supabase / localStorage |
-| `model/` | geëxporteerd Teachable Machine pose-model (TF.js) |
+| `model-image/` | **v2 (standaard)** – Teachable Machine image-model (TF.js, 224 px) |
+| `model/` | v1 – Teachable Machine pose-model (TF.js) |
 | `supabase/schema.sql` | tabel, RLS-policies en scorebord-view |
 
 ## Dataset
 
-Model: Teachable Machine **Pose** (PoseNet MobileNetV1, 257 px), 2 klassen: `ogen open`, `ogen dicht`.
+Twee modellen, telkens 2 klassen `ogen open` / `ogen dicht`:
+
+- **v1 – Pose** (PoseNet MobileNetV1, 257 px): ziet enkel ~17 keypoints, **geen oogleden**. Herkende in de praktijk vooral hoofdhouding → ogen dicht met recht hoofd gaf "open".
+- **v2 – Image** (MobileNet, 224 px) – **standaard**: ziet de pixels van het camerabeeld en dus ook de oogleden.
 
 | Klasse | # voorbeelden | Wanneer / licht | Variatie |
 |---|---|---|---|
@@ -71,20 +75,22 @@ _(Vul aan: minstens 30 per klas, verschillende momenten en lichtomstandigheden.)
 
 | # | Situatie | Wat gebeurde er | Aanpassing |
 |---|---|---|---|
-| 1 | _bv. donkere kamer / tegenlicht_ | _…_ | _bv. extra samples bij weinig licht_ |
-| 2 | _bv. andere persoon / met bril_ | _…_ | _…_ |
+| 1 | Ogen dicht met recht hoofd (pose-model v1) | Voorspelde "ogen open": PoseNet ziet geen oogleden, model leerde hoofdhouding | Overgestapt op een image-model (v2) |
+| 2 | _bv. donkere kamer / tegenlicht / andere persoon / bril_ | _…_ | _…_ |
 | 3 | _bv. foto van een foto op een scherm_ | _…_ | _knipper-uitdaging toegevoegd_ |
 
 Gebruik de **testmodus** in de app om per situatie de nauwkeurigheid te meten (voor/na aanpassing).
 
 ## Modelvergelijking
 
-Train een tweede model (bv. met meer lichtvariatie), zet het in `model-v2/` en activeer het in `MODELS` in `js/config.js`. Test beide in de testmodus; de tabel "Modelvergelijking" toont het verschil.
+Kies in de app het model (v2 image of v1 pose), start, en gebruik de testmodus met dezelfde situaties. De tabel "Modelvergelijking" toont beide naast elkaar. Extra modellen voeg je toe in `MODELS` in `js/config.js` (`type: "image"` of `"pose"`).
+
+Tip: train een 3e klasse `geen persoon` (lege stoel/kamer) – de app herkent dat label automatisch en geeft dan geen alarm als je wegloopt.
 
 | Model | Frames | Nauwkeurigheid | Open ✓ | Dicht ✓ |
 |---|---|---|---|---|
-| v1 | _…_ | _…_ | _…_ | _…_ |
-| v2 | _…_ | _…_ | _…_ | _…_ |
+| v1 – pose | _…_ | _…_ | _…_ | _…_ |
+| v2 – image | _…_ | _…_ | _…_ | _…_ |
 
 ## Reflectie (max. 200 woorden)
 
@@ -98,7 +104,7 @@ Bias: de dataset bevat vooral één persoon (ikzelf), één huidskleur, met/zond
 
 | Tool | Waarvoor | Wat paste ik aan |
 |---|---|---|
-| Google Teachable Machine | Model trainen (pose, 2 klassen) | Eigen dataset opgenomen |
+| Google Teachable Machine | Modellen trainen (v1 pose, v2 image; 2 klassen) | Eigen dataset opgenomen; na falen van pose overgestapt op image |
 | Claude Code (Claude Opus) | Webapp, Supabase-schema, README-opzet gegenereerd | _bv. drempels/intervallen getest en bijgesteld, teksten herschreven, …_ |
 
 Prompt (samengevat): de volledige opdracht "Campus Quest – train je eigen AI-checkpoint" geplakt + mijn geëxporteerd model, met de vraag *"Ik heb al mijn AI-model, maak nu de rest"*.

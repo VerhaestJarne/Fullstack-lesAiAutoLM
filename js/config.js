@@ -8,11 +8,16 @@ export const SUPABASE_URL = "";
 export const SUPABASE_ANON_KEY = "";
 
 // Beschikbare modellen (map met model.json + metadata.json + weights.bin).
-// Voeg een tweede getraind model toe (bv. models/v2/) om ze te vergelijken.
+// type "image" = @teachablemachine/image (ziet pixels → oogleden)
+// type "pose"  = @teachablemachine/pose  (ziet enkel keypoints → geen oogleden)
+// Het eerste model is de standaard.
 export const MODELS = [
-  { id: "v1", name: "v1 – eigen dataset", url: "./model/" },
-  // { id: "v2", name: "v2 – meer licht/variatie", url: "./model-v2/" },
+  { id: "v2-image", name: "v2 – image (standaard)", type: "image", url: "./model-image/" },
+  { id: "v1", name: "v1 – pose", type: "pose", url: "./model/" },
 ];
+
+// Labels die "geen persoon" betekenen (optionele 3e klasse in Teachable Machine)
+export const LABEL_NONE = /geen|leeg|achtergrond|none|background/i;
 
 // Klassenamen zoals in Teachable Machine
 export const LABEL_OPEN = "ogen open";
