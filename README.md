@@ -7,9 +7,11 @@
 WakkerWacht herkent via de frontcamera van je smartphone of je **ogen open** of **dicht** zijn:
 
 - ✅ **Punten** zolang je gefocust (ogen open) voor je scherm zit, per interval (10 s demo / 1 min / 5 min) bij een zekerheid ≥ drempel (standaard **90%**).
+- 🚫 **Ogen dicht = nooit punten:** focustijd telt enkel als de stabiele toestand én de huidige frame "open" zijn. Zodra je ogen (stabiel) dicht zijn, vervalt het lopende interval. Pauzes en uitdagingen geven geen punten.
 - ⏰ **Alarm** (geluid + trillen) als je ogen langer dan 3 s dicht zijn → −5 punten en je reeks wordt gereset.
-- ☕ **Pauzemelding (20-20-20-regel):** na 20 min focus moet je 20 s wegkijken of je ogen sluiten → +5 punten.
+- ☕ **Pauzemelding (20-20-20-regel):** na 20 min focus moet je 20 s wegkijken of je ogen sluiten.
 - 🛡️ **Anti-foppen:** elke 90 s een *knipper-uitdaging* (ogen 1 s dicht, dan weer open binnen 8 s). Een foto kan niet knipperen → bij falen worden punten geblokkeerd.
+- 📼 **Sessies terugkijken:** per sessie een tijdlijn (1 sample/seconde: open / dicht / onzeker / geen gezicht) met markeringen voor punten en alarmen, plus een lijst van alle gebeurtenissen.
 - 🏆 **Scorebord** opgeslagen in **Supabase** (of lokaal als fallback).
 - 🧪 **Testmodus + modelvergelijking:** houd "ogen OPEN/DICHT" ingedrukt; de app telt per frame juist/fout → verwarringsmatrix en nauwkeurigheid per model.
 

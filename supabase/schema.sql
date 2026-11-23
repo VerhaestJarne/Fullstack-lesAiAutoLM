@@ -13,8 +13,14 @@ create table if not exists public.sessions (
   challenges_passed integer not null default 0,
   challenges_failed integer not null default 0,
   model_id          text    not null,
-  threshold         real    not null
+  threshold         real    not null,
+  timeline          text    not null default '' check (char_length(timeline) <= 20000), -- 1 teken/seconde: o/d/u/g
+  events            jsonb   not null default '[]'::jsonb                                 -- [{t, type, v?}]
 );
+
+-- Bestond de tabel al (oudere versie)? Dan worden de nieuwe kolommen toegevoegd:
+alter table public.sessions add column if not exists timeline text  not null default '';
+alter table public.sessions add column if not exists events   jsonb not null default '[]'::jsonb;
 
 alter table public.sessions enable row level security;
 

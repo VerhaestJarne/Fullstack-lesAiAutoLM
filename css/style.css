@@ -69,5 +69,24 @@ table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 th, td { padding: 6px; border-bottom: 1px solid #334155; text-align: left; }
 
 .leaderboard { margin: 0; padding-left: 22px; display: grid; gap: 4px; }
+.history { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.history button { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; text-align: left; }
+.history button small { grid-column: 1 / -1; }
+.detail { display: grid; gap: 10px; border-top: 1px solid #334155; padding-top: 12px; }
+.detail h3 { margin: 0; font-size: 1rem; align-self: center; }
+.detail .row > button { flex: 0; }
+.timeline { position: relative; display: flex; height: 26px; border-radius: 8px; overflow: hidden; background: #0b1222; }
+.tl-o { background: var(--accent); }
+.tl-d { background: var(--danger); }
+.tl-u { background: var(--warn); }
+.tl-g { background: #475569; }
+.timeline i { position: absolute; top: 0; bottom: 0; width: 2px; }
+.mk-alarm { background: white; }
+.mk-points { background: var(--info); }
+.tl-axis { display: flex; justify-content: space-between; font-size: .75rem; color: var(--muted); margin-top: -6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: .8rem; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+.events { margin: 0; padding-left: 20px; font-size: .85rem; display: grid; gap: 2px; max-height: 220px; overflow: auto; }
+.events code { color: var(--muted); }
 .leaderboard li.muted { list-style: none; margin-left: -22px; }
 .leaderboard li span { float: right; color: var(--muted); }

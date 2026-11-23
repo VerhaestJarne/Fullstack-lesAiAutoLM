@@ -29,10 +29,28 @@ export async function saveSession(session) {
   }
   try {
     const all = readLocal();
-    all.push({ ...session, created_at: new Date().toISOString() });
+    all.push({ ...session, id: Date.now(), created_at: new Date().toISOString() });
     localStorage.setItem(LS_KEY, JSON.stringify(all));
   } catch {}
   return !supabase;
+}
+
+// Sessies van één speler, nieuwste eerst
+export async function getSessions(player, n = 30) {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("sessions")
+      .select("*")
+      .eq("player", player)
+      .order("created_at", { ascending: false })
+      .limit(n);
+    if (!error) return data;
+    console.error("Supabase sessies", error);
+  }
+  return readLocal()
+    .filter((r) => r.player === player)
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    .slice(0, n);
 }
 
 // Top N spelers op basis van totaal aantal punten

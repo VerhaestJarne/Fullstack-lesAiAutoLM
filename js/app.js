@@ -1,5 +1,5 @@
 import { MODELS, LABEL_OPEN, LABEL_CLOSED, RULES } from "./config.js";
-import { initStorage, saveSession, getLeaderboard } from "./storage.js";
+import { initStorage, saveSession, getLeaderboard, getSessions } from "./storage.js";
 
 /* global tmPose */
 const $ = (id) => document.getElementById(id);
@@ -18,8 +18,11 @@ initStorage().then((mode) => {
   b.textContent = mode === "supabase" ? "☁ Supabase" : "💾 lokaal";
   b.className = "badge " + (mode === "supabase" ? "ok" : "local");
   refreshLeaderboard();
+  refreshHistory();
 });
 renderCompare();
+let nameTimer;
+$("playerName").addEventListener("input", () => { clearTimeout(nameTimer); nameTimer = setTimeout(refreshHistory, 400); });
 
 // ---------- State ----------
 let model, webcam, rafId, audioCtx, wakeLock, alarmTimer;
@@ -39,7 +42,27 @@ function freshState() {
     sinceChallengeSec: 0, challenge: null, locked: false,
     challengesPassed: 0, challengesFailed: 0,
     useChallenge: $("challengeToggle").checked,
+    raw: "geen",
+    elapsed: 0,          // seconden sinds start
+    tlAcc: 0,            // accumulator voor 1 sample/seconde
+    timeline: "",        // 1 teken per seconde: o=open d=dicht u=onzeker g=geen gezicht
+    events: [],          // [{t, type, v?}]
   };
+}
+
+const TL_CHAR = { open: "o", dicht: "d", onzeker: "u", geen: "g" };
+function recordTimeline(dt) {
+  s.elapsed += dt;
+  s.tlAcc += dt;
+  while (s.tlAcc >= 1) {
+    s.tlAcc -= 1;
+    s.timeline += TL_CHAR[s.committed] || "g";
+  }
+}
+function logEvent(type, v) {
+  const e = { t: Math.round(s.elapsed), type };
+  if (v !== undefined) e.v = v;
+  s.events.push(e);
 }
 
 // ---------- Start / stop ----------
@@ -103,13 +126,16 @@ $("stopBtn").onclick = async () => {
     challenges_failed: s.challengesFailed,
     model_id: modelInfo.id,
     threshold,
+    timeline: s.timeline,
+    events: s.events,
   };
   const ok = await saveSession(session);
-  alert(`Sessie bewaard${ok ? "" : " (lokaal – server faalde)"}: ${s.points} punten, ${fmt(s.focusSec)} focus.`);
+  alert(`Sessie bewaard${ok ? "" : " (lokaal – server faalde)"}: ${s.points} punten, ${fmt(session.focus_sec)} focus.`);
   $("live").classList.add("hidden");
   $("setup").classList.remove("hidden");
   $("testPanel").classList.add("hidden");
   refreshLeaderboard();
+  refreshHistory();
 };
 
 // ---------- Main loop ----------
@@ -127,7 +153,9 @@ async function loop() {
   if (raw !== s.candidate) { s.candidate = raw; s.candidateSince = now; }
   if (now - s.candidateSince >= RULES.stableMs) s.committed = s.candidate;
 
+  s.raw = raw;
   update(dt, now);
+  recordTimeline(dt);
   if (testTruth) recordTest(prediction);
 
   draw(pose);
@@ -158,8 +186,8 @@ function update(dt, now) {
     if (s.breakLeft <= 0) {
       s.breakActive = false;
       s.sinceBreakSec = 0;
-      s.points += 5;
-      flash("✅ Pauze voltooid: +5 punten", "info");
+      logEvent("break_done");
+      flash("✅ Pauze voltooid – focus verder", "info");
     } else {
       showBanner(`☕ Pauze! Kijk 20 s weg van je scherm of sluit je ogen (${Math.ceil(s.breakLeft)} s)`, "break");
     }
@@ -177,8 +205,9 @@ function update(dt, now) {
       s.locked = false;
       s.challengesPassed++;
       s.sinceChallengeSec = 0;
-      s.points += 5;
-      flash("✅ Uitdaging gehaald: +5 punten", "info");
+      s.intervalSec = 0; // ogen waren dicht → lopend interval telt niet
+      logEvent("challenge_ok");
+      flash("✅ Uitdaging gehaald – punten weer actief", "info");
       return;
     }
     const left = (c.deadline - now) / 1000;
@@ -186,6 +215,7 @@ function update(dt, now) {
       s.challenge = null;
       s.locked = true;
       s.challengesFailed++;
+      logEvent("challenge_fail");
       s.sinceChallengeSec = RULES.challengeEverySec - 10; // nieuwe poging na 10 s
       flash("❌ Uitdaging gemist – punten geblokkeerd tot je er één haalt", "alarm");
       return;
@@ -207,6 +237,7 @@ function update(dt, now) {
     s.points = Math.max(0, s.points - RULES.alarmPenalty);
     s.streakSec = 0;
     s.intervalSec = 0;
+    logEvent("alarm");
     startAlarm();
   }
   if (s.alarmActive) {
@@ -215,8 +246,12 @@ function update(dt, now) {
   }
 
   // 4) Focus & punten
+  // Ogen dicht (stabiel) → lopend interval vervalt: dicht levert NOOIT punten op
+  if (st === "dicht") { s.intervalSec = 0; s.streakSec = 0; hideBannerUnlessFlash(); return; }
   if (st === "geen") { s.streakSec = 0; showBanner("Geen gezicht in beeld", "info"); return; }
-  if (st !== "open") { hideBannerUnlessFlash(); return; }
+  // Enkel tellen als zowel de stabiele toestand als déze frame "open" zijn
+  // (anders telt de 600 ms debounce na het sluiten van je ogen nog mee)
+  if (st !== "open" || s.raw !== "open") { hideBannerUnlessFlash(); return; }
 
   if (s.locked) { showBanner("🔒 Punten geblokkeerd – wacht op de volgende uitdaging", "info"); }
   else hideBannerUnlessFlash();
@@ -231,6 +266,7 @@ function update(dt, now) {
     if (s.intervalSec >= pointInterval) {
       s.intervalSec -= pointInterval;
       s.points += RULES.pointsPerInterval;
+      logEvent("points", RULES.pointsPerInterval);
       flash(`+${RULES.pointsPerInterval} punten 🎉`, "info");
       beep(880, 0.12);
     }
@@ -239,10 +275,12 @@ function update(dt, now) {
   if (s.sinceBreakSec >= RULES.breakAfterSec) {
     s.breakActive = true;
     s.breakLeft = RULES.breakDurationSec;
+    logEvent("break");
     beep(520, 0.3);
     navigator.vibrate?.(300);
   } else if (s.useChallenge && s.sinceChallengeSec >= RULES.challengeEverySec) {
     s.challenge = { phase: "close", closedMs: 0, deadline: now + RULES.challengeWindowSec * 1000 };
+    logEvent("challenge");
     beep(660, 0.15);
     navigator.vibrate?.(150);
   }
@@ -397,6 +435,91 @@ async function refreshLeaderboard() {
   $("leaderboard").innerHTML = rows.length
     ? rows.map((r) => `<li>${escapeHtml(r.player)} <span>${r.total_points} pt · ${fmt(r.total_focus_sec)} · ${r.sessions}×</span></li>`).join("")
     : '<li class="muted">Nog geen scores – start een sessie!</li>';
+}
+
+// ---------- Sessies terugkijken ----------
+let historyRows = [];
+async function refreshHistory() {
+  const name = $("playerName").value.trim();
+  $("sessionDetail").classList.add("hidden");
+  if (!name) {
+    $("historyFor").textContent = "Vul je naam in om je sessies te zien.";
+    $("history").innerHTML = "";
+    return;
+  }
+  historyRows = await getSessions(name);
+  $("historyFor").textContent = historyRows.length
+    ? `${historyRows.length} sessie(s) van ${name} – tik om te bekijken.`
+    : `Nog geen sessies van ${name}.`;
+  $("history").innerHTML = historyRows
+    .map((r, i) => `<li><button data-i="${i}">
+        <span>${fmtDate(r.created_at)}</span>
+        <b>${r.points} pt</b>
+        <small>${fmt(r.focus_sec)} focus · ${r.alarms} ⏰</small>
+      </button></li>`)
+    .join("");
+  $("history").querySelectorAll("button").forEach((b) => (b.onclick = () => showSession(historyRows[b.dataset.i])));
+}
+
+const EVENT_TXT = {
+  points: (e) => `+${e.v} punten`,
+  alarm: () => "⏰ alarm – ogen te lang dicht",
+  challenge: () => "👁️ knipper-uitdaging gestart",
+  challenge_ok: () => "✅ uitdaging gehaald",
+  challenge_fail: () => "❌ uitdaging gemist",
+  break: () => "☕ pauze gestart",
+  break_done: () => "✅ pauze voltooid",
+};
+
+function showSession(r) {
+  const tl = r.timeline || "";
+  const count = (c) => [...tl].filter((x) => x === c).length;
+  const total = tl.length || 1;
+  const pct = (c) => Math.round((count(c) / total) * 100);
+
+  // tijdlijn comprimeren tot runs: "ooooddd" → [["o",4],["d",3]]
+  const runs = [];
+  for (const ch of tl) {
+    if (runs.length && runs[runs.length - 1][0] === ch) runs[runs.length - 1][1]++;
+    else runs.push([ch, 1]);
+  }
+  const NAMES = { o: "open", d: "dicht", u: "onzeker", g: "geen gezicht" };
+  const bar = runs
+    .map(([ch, n]) => `<div class="tl-${ch}" style="flex:${n}" title="${NAMES[ch]} ${n}s"></div>`)
+    .join("");
+  const markers = (r.events || [])
+    .filter((e) => e.type === "alarm" || e.type === "points")
+    .map((e) => `<i class="mk-${e.type}" style="left:${(e.t / total) * 100}%"></i>`)
+    .join("");
+
+  $("sessionDetail").innerHTML = `
+    <div class="row"><h3>${fmtDate(r.created_at)}</h3><button class="small" id="closeDetail">✕</button></div>
+    <div class="stats">
+      <div><span>${r.points}</span><small>punten</small></div>
+      <div><span>${fmt(r.focus_sec)}</span><small>focus</small></div>
+      <div><span>${fmt(r.duration_sec)}</span><small>duur</small></div>
+      <div><span>${r.alarms}</span><small>alarmen</small></div>
+    </div>
+    ${tl ? `<div class="timeline">${bar}${markers}</div>
+    <div class="tl-axis"><span>0:00</span><span>${fmt(tl.length)}</span></div>
+    <div class="legend">
+      <span><i class="tl-o"></i>open ${pct("o")}%</span>
+      <span><i class="tl-d"></i>dicht ${pct("d")}%</span>
+      <span><i class="tl-u"></i>onzeker ${pct("u")}%</span>
+      <span><i class="tl-g"></i>geen gezicht ${pct("g")}%</span>
+    </div>` : '<p class="muted">Geen tijdlijn voor deze (oudere) sessie.</p>'}
+    <p class="muted">Model ${escapeHtml(r.model_id)} · drempel ${Math.round(r.threshold * 100)}% ·
+      uitdagingen ${r.challenges_passed} ✓ / ${r.challenges_failed} ✗</p>
+    ${(r.events || []).length ? `<ol class="events">${r.events
+      .map((e) => `<li><code>${fmt(e.t)}</code> ${(EVENT_TXT[e.type] || (() => e.type))(e)}</li>`)
+      .join("")}</ol>` : ""}`;
+  $("sessionDetail").classList.remove("hidden");
+  $("closeDetail").onclick = () => $("sessionDetail").classList.add("hidden");
+  $("sessionDetail").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function fmtDate(iso) {
+  return new Date(iso).toLocaleString("nl-BE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 // ---------- Helpers ----------
