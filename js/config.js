@@ -12,7 +12,8 @@ export const SUPABASE_ANON_KEY = "";
 // type "pose"  = @teachablemachine/pose  (ziet enkel keypoints → geen oogleden)
 // Het eerste model is de standaard.
 export const MODELS = [
-  { id: "v2-image", name: "v2 – image (standaard)", type: "image", url: "./model-image/" },
+  { id: "v3-image", name: "v3 – image, hertraind (standaard)", type: "image", url: "./model-image-v3/" },
+  { id: "v2-image", name: "v2 – image", type: "image", url: "./model-image/" },
   { id: "v1", name: "v1 – pose", type: "pose", url: "./model/" },
 ];
 
