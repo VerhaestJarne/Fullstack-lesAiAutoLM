@@ -23,6 +23,7 @@ initStorage().then((mode) => {
 renderCompare();
 let nameTimer;
 $("playerName").addEventListener("input", () => { clearTimeout(nameTimer); nameTimer = setTimeout(refreshHistory, 400); });
+$("onlyMine").onchange = refreshHistory;
 
 // ---------- State ----------
 let model, webcam, rafId, audioCtx, wakeLock, alarmTimer;
@@ -441,21 +442,18 @@ async function refreshLeaderboard() {
 let historyRows = [];
 async function refreshHistory() {
   const name = $("playerName").value.trim();
+  const onlyMine = $("onlyMine").checked && !!name;
   $("sessionDetail").classList.add("hidden");
-  if (!name) {
-    $("historyFor").textContent = "Vul je naam in om je sessies te zien.";
-    $("history").innerHTML = "";
-    return;
-  }
-  historyRows = await getSessions(name);
+  historyRows = await getSessions(onlyMine ? name : null);
+  const where = backendMode === "supabase" ? "" : " op dit toestel";
   $("historyFor").textContent = historyRows.length
-    ? `${historyRows.length} sessie(s) van ${name} – tik om te bekijken.`
-    : `Nog geen sessies van ${name}.`;
+    ? `${historyRows.length} sessie(s)${onlyMine ? ` van ${name}` : ""}${where} – tik om te bekijken.`
+    : `Nog geen sessies${onlyMine ? ` van ${name}` : ""}${where}.`;
   $("history").innerHTML = historyRows
     .map((r, i) => `<li><button data-i="${i}">
-        <span>${fmtDate(r.created_at)}</span>
+        <span>${fmtDate(r.created_at)} · ${escapeHtml(r.player)}</span>
         <b>${r.points} pt</b>
-        <small>${fmt(r.focus_sec)} focus · ${r.alarms} ⏰</small>
+        <small>${fmt(r.focus_sec)} focus · ${fmt(r.duration_sec)} duur · ${r.alarms} ⏰${r.timeline ? "" : " · geen tijdlijn"}</small>
       </button></li>`)
     .join("");
   $("history").querySelectorAll("button").forEach((b) => (b.onclick = () => showSession(historyRows[b.dataset.i])));
@@ -493,7 +491,7 @@ function showSession(r) {
     .join("");
 
   $("sessionDetail").innerHTML = `
-    <div class="row"><h3>${fmtDate(r.created_at)}</h3><button class="small" id="closeDetail">✕</button></div>
+    <div class="row"><h3>${escapeHtml(r.player)} · ${fmtDate(r.created_at)}</h3><button class="small" id="closeDetail">✕</button></div>
     <div class="stats">
       <div><span>${r.points}</span><small>punten</small></div>
       <div><span>${fmt(r.focus_sec)}</span><small>focus</small></div>

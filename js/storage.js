@@ -35,20 +35,18 @@ export async function saveSession(session) {
   return !supabase;
 }
 
-// Sessies van één speler, nieuwste eerst
-export async function getSessions(player, n = 30) {
+// Sessies (nieuwste eerst). player = null → alle spelers; anders hoofdletterongevoelig.
+export async function getSessions(player = null, n = 50) {
   if (supabase) {
-    const { data, error } = await supabase
-      .from("sessions")
-      .select("*")
-      .eq("player", player)
-      .order("created_at", { ascending: false })
-      .limit(n);
+    let q = supabase.from("sessions").select("*").order("created_at", { ascending: false }).limit(n);
+    if (player) q = q.ilike("player", player.replace(/[%_\\]/g, "\\$&"));
+    const { data, error } = await q;
     if (!error) return data;
     console.error("Supabase sessies", error);
   }
+  const p = player?.toLowerCase();
   return readLocal()
-    .filter((r) => r.player === player)
+    .filter((r) => !p || String(r.player).toLowerCase() === p)
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
     .slice(0, n);
 }
