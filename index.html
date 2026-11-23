@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>WakkerWacht – oogcoach</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>👁️ WakkerWacht</h1>
+    <span id="backendBadge" class="badge">backend…</span>
+  </header>
+
+  <main>
+    <!-- Setup -->
+    <section id="setup" class="card">
+      <p class="lead">Blijf gefocust: punten zolang je ogen open zijn, een alarm als je in slaap valt en een pauzeherinnering (20-20-20-regel).</p>
+
+      <label>Naam
+        <input id="playerName" maxlength="30" placeholder="bv. Jarne" autocomplete="nickname" />
+      </label>
+
+      <div class="grid2">
+        <label>Model
+          <select id="modelSelect"></select>
+        </label>
+        <label>Punten elke
+          <select id="pointInterval">
+            <option value="10">10 sec (demo)</option>
+            <option value="60" selected>1 min</option>
+            <option value="300">5 min</option>
+          </select>
+        </label>
+      </div>
+
+      <label>Zekerheidsdrempel: <b id="thresholdVal">90%</b>
+        <input id="threshold" type="range" min="0.5" max="0.99" step="0.01" value="0.9" />
+      </label>
+
+      <label class="check"><input id="challengeToggle" type="checkbox" checked /> Anti-fop knipper-uitdaging</label>
+
+      <button id="startBtn" class="primary">▶ Start camera</button>
+      <p class="privacy">🔒 Camerabeelden blijven op je toestel. Het model draait lokaal in je browser; enkel je naam en scores gaan naar de server.</p>
+    </section>
+
+    <!-- Live -->
+    <section id="live" class="card hidden">
+      <div class="camwrap">
+        <canvas id="canvas" width="300" height="300"></canvas>
+        <div id="stateBadge" class="state neutral">laden…</div>
+      </div>
+
+      <div id="banner" class="banner hidden"></div>
+
+      <div class="stats">
+        <div><span id="points">0</span><small>punten</small></div>
+        <div><span id="focusTime">0:00</span><small>focus</small></div>
+        <div><span id="streak">0:00</span><small>reeks</small></div>
+        <div><span id="alarms">0</span><small>alarmen</small></div>
+      </div>
+
+      <div class="progress"><div id="nextPointBar"></div></div>
+      <small class="muted" id="nextPointTxt">volgende punten…</small>
+
+      <div id="labels" class="labels"></div>
+
+      <div class="row">
+        <button id="testToggle">🧪 Testmodus</button>
+        <button id="stopBtn" class="danger">■ Stop &amp; bewaar</button>
+      </div>
+
+      <!-- Test mode -->
+      <div id="testPanel" class="hidden testpanel">
+        <p class="muted">Houd een knop ingedrukt terwijl je de juiste houding aanneemt. Elke frame wordt vergeleken met de voorspelling (drempel genegeerd: hoogste klasse telt).</p>
+        <div class="row">
+          <button class="hold" data-truth="open">Houd: ogen OPEN</button>
+          <button class="hold" data-truth="dicht">Houd: ogen DICHT</button>
+        </div>
+        <div id="testResult"></div>
+        <button id="testReset" class="small">Reset test</button>
+      </div>
+    </section>
+
+    <!-- Leaderboard -->
+    <section class="card">
+      <h2>🏆 Scorebord</h2>
+      <ol id="leaderboard" class="leaderboard"><li class="muted">laden…</li></ol>
+    </section>
+
+    <!-- Model comparison -->
+    <section class="card">
+      <h2>📊 Modelvergelijking</h2>
+      <p class="muted">Resultaten uit de testmodus (opgeslagen op dit toestel).</p>
+      <div id="compareTable"></div>
+    </section>
+  </main>
+
+  <!-- Teachable Machine (TF.js) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8.6/dist/teachablemachine-pose.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
