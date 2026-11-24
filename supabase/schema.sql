@@ -24,6 +24,11 @@ alter table public.sessions add column if not exists events   jsonb not null def
 
 alter table public.sessions enable row level security;
 
+-- Data API-toegang voor de app (nodig als "Grant API access to new tables
+-- automatically" uit staat). RLS-policies hieronder beperken wat mag.
+grant usage on schema public to anon;
+grant select, insert on public.sessions to anon;
+
 -- Iedereen (anon key) mag sessies toevoegen en lezen, maar niet wijzigen/verwijderen.
 drop policy if exists "anon insert" on public.sessions;
 create policy "anon insert" on public.sessions for insert to anon with check (true);
@@ -41,3 +46,5 @@ select player,
 from public.sessions
 group by player
 order by total_points desc;
+
+grant select on public.leaderboard to anon;

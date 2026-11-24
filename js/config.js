@@ -4,8 +4,8 @@
 // (Supabase dashboard → Project Settings → API). De anon key is publiek bedoeld;
 // toegang wordt beperkt via Row Level Security (zie supabase/schema.sql).
 // Laat leeg → de app werkt in "lokale modus" (localStorage).
-export const SUPABASE_URL = "";
-export const SUPABASE_ANON_KEY = "";
+export const SUPABASE_URL = "https://aluipnccsdyvdznqyrnh.supabase.co";
+export const SUPABASE_ANON_KEY = "sb_publishable_G_DdMhVop0vpyMkzIRpDgQ_Mlr1dF7w";
 
 // Beschikbare modellen (map met model.json + metadata.json + weights.bin).
 // type "image" = @teachablemachine/image (ziet pixels → oogleden)
