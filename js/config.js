@@ -33,8 +33,5 @@ export const RULES = {
   alarmPenalty: 5,        // punten eraf bij alarm
   breakAfterSec: 20 * 60, // 20-20-20: na 20 min focus...
   breakDurationSec: 20,   // ...20 sec pauze (weg van het scherm)
-  challengeEverySec: 90,  // anti-fop: elke 90 s een knipper-uitdaging
-  challengeWindowSec: 8,  // tijd om de uitdaging te doen
-  challengeHoldMs: 1000,  // ogen minstens 1 s dicht houden
   minKeypointScore: 0.5,  // neus + ogen moeten zichtbaar zijn
 };

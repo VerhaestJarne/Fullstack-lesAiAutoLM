@@ -40,9 +40,6 @@ function freshState() {
     points: 0, focusSec: 0, streakSec: 0, intervalSec: 0,
     closedMs: 0, alarmActive: false, alarms: 0,
     sinceBreakSec: 0, breakActive: false, breakLeft: 0,
-    sinceChallengeSec: 0, challenge: null, locked: false,
-    challengesPassed: 0, challengesFailed: 0,
-    useChallenge: $("challengeToggle").checked,
     raw: "geen",
     elapsed: 0,          // seconden sinds start
     tlAcc: 0,            // accumulator voor 1 sample/seconde
@@ -123,8 +120,8 @@ $("stopBtn").onclick = async () => {
     focus_sec: Math.round(s.focusSec),
     duration_sec: Math.round((performance.now() - s.startedAt) / 1000),
     alarms: s.alarms,
-    challenges_passed: s.challengesPassed,
-    challenges_failed: s.challengesFailed,
+    challenges_passed: 0, // uitdagingen verwijderd; kolommen blijven voor oude sessies
+    challenges_failed: 0,
     model_id: modelInfo.id,
     threshold,
     timeline: s.timeline,
@@ -207,8 +204,7 @@ function update(dt, now) {
     return;
   }
 
-  // 2) Alarm bij in slaap vallen – geldt óók tijdens een uitdaging,
-  //    want met je ogen dicht zie je geen enkele melding op het scherm
+  // 2) Alarm bij in slaap vallen
   s.closedMs = st === "dicht" ? s.closedMs + dt * 1000 : 0;
   if (!s.alarmActive && s.closedMs >= RULES.alarmAfterMs) {
     s.alarmActive = true;
@@ -224,45 +220,7 @@ function update(dt, now) {
     else { showBanner("⏰ WAKKER WORDEN! Open je ogen", "alarm"); return; }
   }
 
-  // 3) Knipper-uitdaging (anti-foppen: een foto kan niet knipperen)
-  if (s.challenge) {
-    const c = s.challenge;
-    if (c.phase === "close") {
-      c.closedMs = st === "dicht" ? c.closedMs + dt * 1000 : 0;
-      if (c.closedMs >= RULES.challengeHoldMs) {
-        c.phase = "reopen";
-        play("reopen"); // hoorbaar signaal: je ziet "open je ogen" niet met ogen dicht
-      }
-    } else if (c.phase === "reopen" && st === "open") {
-      s.challenge = null;
-      s.locked = false;
-      s.challengesPassed++;
-      s.sinceChallengeSec = 0;
-      s.intervalSec = 0; // ogen waren dicht → lopend interval telt niet
-      logEvent("challenge_ok");
-      flash("✅ Uitdaging gehaald – punten weer actief", "info");
-      return;
-    }
-    const left = (c.deadline - now) / 1000;
-    if (left <= 0) {
-      s.challenge = null;
-      s.locked = true;
-      s.challengesFailed++;
-      logEvent("challenge_fail");
-      s.sinceChallengeSec = RULES.challengeEverySec - 10; // nieuwe poging na 10 s
-      flash("❌ Uitdaging gemist – punten geblokkeerd tot je er één haalt", "alarm");
-      return;
-    }
-    showBanner(
-      c.phase === "close"
-        ? `👁️ Uitdaging: sluit je ogen 1 seconde (${Math.ceil(left)} s)`
-        : `👁️ Goed! Open nu je ogen (${Math.ceil(left)} s)`,
-      "challenge"
-    );
-    return;
-  }
-
-  // 4) Focus & punten
+  // 3) Focus & punten
   // Ogen dicht (stabiel) → lopend interval vervalt: dicht levert NOOIT punten op
   if (st === "dicht") { s.intervalSec = 0; s.streakSec = 0; hideBannerUnlessFlash(); return; }
   if (st === "geen") { s.streakSec = 0; showBanner("Geen gezicht in beeld", "info"); return; }
@@ -270,23 +228,19 @@ function update(dt, now) {
   // (anders telt de 600 ms debounce na het sluiten van je ogen nog mee)
   if (st !== "open" || s.raw !== "open") { hideBannerUnlessFlash(); return; }
 
-  if (s.locked) { showBanner("🔒 Punten geblokkeerd – wacht op de volgende uitdaging", "info"); }
-  else hideBannerUnlessFlash();
+  hideBannerUnlessFlash();
 
   s.focusSec += dt;
   s.streakSec += dt;
   s.sinceBreakSec += dt;
-  if (s.useChallenge) s.sinceChallengeSec += dt;
 
-  if (!s.locked) {
-    s.intervalSec += dt;
-    if (s.intervalSec >= pointInterval) {
-      s.intervalSec -= pointInterval;
-      s.points += RULES.pointsPerInterval;
-      logEvent("points", RULES.pointsPerInterval);
-      flash(`+${RULES.pointsPerInterval} punten 🎉`, "info");
-      play("points");
-    }
+  s.intervalSec += dt;
+  if (s.intervalSec >= pointInterval) {
+    s.intervalSec -= pointInterval;
+    s.points += RULES.pointsPerInterval;
+    logEvent("points", RULES.pointsPerInterval);
+    flash(`+${RULES.pointsPerInterval} punten 🎉`, "info");
+    play("points");
   }
 
   if (s.sinceBreakSec >= RULES.breakAfterSec) {
@@ -295,11 +249,6 @@ function update(dt, now) {
     logEvent("break");
     play("break");
     navigator.vibrate?.(300);
-  } else if (s.useChallenge && s.sinceChallengeSec >= RULES.challengeEverySec) {
-    s.challenge = { phase: "close", closedMs: 0, deadline: now + RULES.challengeWindowSec * 1000 };
-    logEvent("challenge");
-    play("challenge");
-    navigator.vibrate?.(150);
   }
 }
 
@@ -335,9 +284,8 @@ function renderStats() {
   $("streak").textContent = fmt(s.streakSec);
   $("alarms").textContent = s.alarms;
   $("nextPointBar").style.width = Math.min(100, (s.intervalSec / pointInterval) * 100) + "%";
-  $("nextPointTxt").textContent = s.locked
-    ? "punten geblokkeerd"
-    : `volgende +${RULES.pointsPerInterval} over ${Math.ceil(pointInterval - s.intervalSec)} s · pauze over ${fmt(RULES.breakAfterSec - s.sinceBreakSec)}`;
+  $("nextPointTxt").textContent =
+    `volgende +${RULES.pointsPerInterval} over ${Math.ceil(pointInterval - s.intervalSec)} s · pauze over ${fmt(RULES.breakAfterSec - s.sinceBreakSec)}`;
 }
 
 let flashUntil = 0;
@@ -371,8 +319,6 @@ function flash(text, kind) {
 const SOUNDS = {
   points:   [[880, 0.12]],
   break:    [[520, 0.3]],
-  challenge:[[660, 0.15]],
-  reopen:   [[1200, 0.1], [0, 0.05], [1200, 0.1]],
   error:    [[400, 0.15], [0, 0.05], [400, 0.15], [0, 0.05], [400, 0.15]],
   alarm:    [[1000, 0.25], [0, 0.25]], // loopt in lus zolang het alarm actief is
 };
@@ -592,8 +538,7 @@ function showSession(r) {
       <span><i class="tl-u"></i>onzeker ${pct("u")}%</span>
       <span><i class="tl-g"></i>geen gezicht ${pct("g")}%</span>
     </div>` : '<p class="muted">Geen tijdlijn voor deze (oudere) sessie.</p>'}
-    <p class="muted">Model ${escapeHtml(r.model_id)} · drempel ${Math.round(r.threshold * 100)}% ·
-      uitdagingen ${r.challenges_passed} ✓ / ${r.challenges_failed} ✗</p>
+    <p class="muted">Model ${escapeHtml(r.model_id)} · drempel ${Math.round(r.threshold * 100)}%</p>
     ${(r.events || []).length ? `<ol class="events">${r.events
       .map((e) => `<li><code>${fmt(e.t)}</code> ${(EVENT_TXT[e.type] || (() => e.type))(e)}</li>`)
       .join("")}</ol>` : ""}`;
