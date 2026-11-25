@@ -208,12 +208,33 @@ function update(dt, now) {
     return;
   }
 
-  // 2) Knipper-uitdaging (anti-foppen: een foto kan niet knipperen)
+  // 2) Alarm bij in slaap vallen – geldt óók tijdens een uitdaging,
+  //    want met je ogen dicht zie je geen enkele melding op het scherm
+  s.closedMs = st === "dicht" ? s.closedMs + dt * 1000 : 0;
+  if (!s.alarmActive && s.closedMs >= RULES.alarmAfterMs) {
+    s.alarmActive = true;
+    s.alarms++;
+    s.points = Math.max(0, s.points - RULES.alarmPenalty);
+    s.streakSec = 0;
+    s.intervalSec = 0;
+    logEvent("alarm");
+    startAlarm();
+  }
+  if (s.alarmActive) {
+    if (st === "open") { s.alarmActive = false; stopAlarm(); hideBanner(); }
+    else { showBanner("⏰ WAKKER WORDEN! Open je ogen", "alarm"); return; }
+  }
+
+  // 3) Knipper-uitdaging (anti-foppen: een foto kan niet knipperen)
   if (s.challenge) {
     const c = s.challenge;
     if (c.phase === "close") {
       c.closedMs = st === "dicht" ? c.closedMs + dt * 1000 : 0;
-      if (c.closedMs >= RULES.challengeHoldMs) c.phase = "reopen";
+      if (c.closedMs >= RULES.challengeHoldMs) {
+        c.phase = "reopen";
+        beep(1200, 0.1); // hoorbaar signaal: je ziet "open je ogen" niet met ogen dicht
+        setTimeout(() => beep(1200, 0.1), 150);
+      }
     } else if (c.phase === "reopen" && st === "open") {
       s.challenge = null;
       s.locked = false;
@@ -241,22 +262,6 @@ function update(dt, now) {
       "challenge"
     );
     return;
-  }
-
-  // 3) Alarm bij in slaap vallen
-  s.closedMs = st === "dicht" ? s.closedMs + dt * 1000 : 0;
-  if (!s.alarmActive && s.closedMs >= RULES.alarmAfterMs) {
-    s.alarmActive = true;
-    s.alarms++;
-    s.points = Math.max(0, s.points - RULES.alarmPenalty);
-    s.streakSec = 0;
-    s.intervalSec = 0;
-    logEvent("alarm");
-    startAlarm();
-  }
-  if (s.alarmActive) {
-    if (st === "open") { s.alarmActive = false; stopAlarm(); hideBanner(); }
-    else { showBanner("⏰ WAKKER WORDEN! Open je ogen", "alarm"); return; }
   }
 
   // 4) Focus & punten
@@ -350,6 +355,11 @@ function flash(text, kind) {
   flashUntil = 0;
   showBanner(text, kind);
   flashUntil = performance.now() + 2000;
+  // Foutmeldingen ook hoorbaar maken (met ogen dicht zie je de banner niet)
+  if (kind === "alarm") {
+    [0, 200, 400].forEach((ms) => setTimeout(() => beep(400, 0.15), ms));
+    navigator.vibrate?.([150, 50, 150, 50, 150]);
+  }
 }
 
 // ---------- Geluid ----------
