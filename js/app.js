@@ -26,7 +26,7 @@ $("playerName").addEventListener("input", () => { clearTimeout(nameTimer); nameT
 $("onlyMine").onchange = refreshHistory;
 
 // ---------- State ----------
-let model, webcam, rafId, audioCtx, wakeLock, alarmTimer;
+let model, webcam, rafId, wakeLock;
 let modelInfo, labels = [], threshold = 0.9, pointInterval = 60;
 let s; // sessiestate
 let lastPrediction = null;
@@ -113,7 +113,6 @@ $("startBtn").onclick = async () => {
 $("stopBtn").onclick = async () => {
   cancelAnimationFrame(rafId);
   stopAlarm();
-  stopKeepAlive();
   webcam?.stop();
   webcam?.webcam?.remove();
   try { await wakeLock?.release(); } catch {}
@@ -232,8 +231,7 @@ function update(dt, now) {
       c.closedMs = st === "dicht" ? c.closedMs + dt * 1000 : 0;
       if (c.closedMs >= RULES.challengeHoldMs) {
         c.phase = "reopen";
-        beep(1200, 0.1); // hoorbaar signaal: je ziet "open je ogen" niet met ogen dicht
-        setTimeout(() => beep(1200, 0.1), 150);
+        play("reopen"); // hoorbaar signaal: je ziet "open je ogen" niet met ogen dicht
       }
     } else if (c.phase === "reopen" && st === "open") {
       s.challenge = null;
@@ -287,7 +285,7 @@ function update(dt, now) {
       s.points += RULES.pointsPerInterval;
       logEvent("points", RULES.pointsPerInterval);
       flash(`+${RULES.pointsPerInterval} punten 🎉`, "info");
-      beep(880, 0.12);
+      play("points");
     }
   }
 
@@ -295,12 +293,12 @@ function update(dt, now) {
     s.breakActive = true;
     s.breakLeft = RULES.breakDurationSec;
     logEvent("break");
-    beep(520, 0.3);
+    play("break");
     navigator.vibrate?.(300);
   } else if (s.useChallenge && s.sinceChallengeSec >= RULES.challengeEverySec) {
     s.challenge = { phase: "close", closedMs: 0, deadline: now + RULES.challengeWindowSec * 1000 };
     logEvent("challenge");
-    beep(660, 0.15);
+    play("challenge");
     navigator.vibrate?.(150);
   }
 }
@@ -357,73 +355,93 @@ function flash(text, kind) {
   flashUntil = performance.now() + 2000;
   // Foutmeldingen ook hoorbaar maken (met ogen dicht zie je de banner niet)
   if (kind === "alarm") {
-    [0, 200, 400].forEach((ms) => setTimeout(() => beep(400, 0.15), ms));
+    play("error");
     navigator.vibrate?.([150, 50, 150, 50, 150]);
   }
 }
 
 // ---------- Geluid ----------
-// iOS (Safari én Chrome = WebKit) / Android:
-//  - Web Audio moet binnen een tik "ontgrendeld" worden met een echt geluid
-//  - de stille-modus-schakelaar dempt Web Audio, tenzij de audiosessie op
-//    "playback" staat → audioSession API (iOS 17+) + stille <audio>-loop (oudere iOS)
-//  - na schermvergrendeling/tabwissel staat de context op "interrupted"/"suspended"
-let keepAlive;
-function silentWavUrl() {
-  const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+// Waarom <audio> i.p.v. Web Audio? Op iOS (Safari én Chrome = WebKit) wordt een
+// AudioContext "interrupted" zodra de camera start, en die kan enkel hersteld
+// worden met een nieuwe tik – die komt er niet met je ogen dicht.
+// Een <audio>-element dat één keer binnen een tik heeft gespeeld, mag daarna
+// altijd opnieuw spelen, en media-geluid negeert de stille-modus-schakelaar.
+
+// Klankpatronen: [frequentie Hz (0 = stilte), duur s]
+const SOUNDS = {
+  points:   [[880, 0.12]],
+  break:    [[520, 0.3]],
+  challenge:[[660, 0.15]],
+  reopen:   [[1200, 0.1], [0, 0.05], [1200, 0.1]],
+  error:    [[400, 0.15], [0, 0.05], [400, 0.15], [0, 0.05], [400, 0.15]],
+  alarm:    [[1000, 0.25], [0, 0.25]], // loopt in lus zolang het alarm actief is
+};
+const RATE = 22050;
+function makeWavUrl(pattern) {
+  const total = Math.round(pattern.reduce((a, [, d]) => a + d, 0) * RATE);
+  const buf = new ArrayBuffer(44 + total * 2), v = new DataView(buf);
   const str = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  str(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); str(8, "WAVEfmt ");
+  str(0, "RIFF"); v.setUint32(4, 36 + total * 2, true); str(8, "WAVEfmt ");
   v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, 44100, true); v.setUint32(28, 88200, true);
+  v.setUint32(24, RATE, true); v.setUint32(28, RATE * 2, true);
   v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  str(36, "data"); v.setUint32(40, n * 2, true);
+  str(36, "data"); v.setUint32(40, total * 2, true);
+  let i = 0;
+  for (const [f, d] of pattern) {
+    const n = Math.round(d * RATE);
+    for (let k = 0; k < n; k++, i++) {
+      const env = Math.min(1, k / 100, (n - k) / 100); // korte fade tegen klikjes
+      const sq = f ? (Math.sin((2 * Math.PI * f * k) / RATE) >= 0 ? 1 : -1) : 0;
+      v.setInt16(44 + i * 2, sq * env * 0.5 * 32767, true);
+    }
+  }
   return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
 }
-function unlockAudio() {
-  try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch {}
-  audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state !== "running") audioCtx.resume();
-  // Stil buffertje afspelen = ontgrendelen (moet synchroon in de tik gebeuren)
-  const src = audioCtx.createBufferSource();
-  src.buffer = audioCtx.createBuffer(1, 1, 22050);
-  src.connect(audioCtx.destination);
-  src.start(0);
-  // Stille loop via <audio> zet iOS in media-modus → ook geluid met stille schakelaar
-  if (!keepAlive) {
-    keepAlive = new Audio(silentWavUrl());
-    keepAlive.loop = true;
-    keepAlive.setAttribute("playsinline", "");
+const players = {};
+function getPlayer(name) {
+  if (!players[name]) {
+    const a = new Audio(makeWavUrl(SOUNDS[name]));
+    a.preload = "auto";
+    a.setAttribute("playsinline", "");
+    a.loop = name === "alarm";
+    players[name] = a;
   }
-  keepAlive.play().catch(() => {});
+  return players[name];
 }
-function stopKeepAlive() { keepAlive?.pause(); }
-// Elke aanraking opnieuw ontgrendelen (bv. na vergrendelen van het scherm)
+// Moet synchroon binnen een tik/klik gebeuren (vóór de eerste await)
+let audioUnlocked = false;
+function unlockAudio() {
+  for (const name of Object.keys(SOUNDS)) {
+    const a = getPlayer(name);
+    a.muted = true;
+    a.play().then(() => {
+      audioUnlocked = true;
+      if (!a.muted) return; // intussen echt afgespeeld via play() → niet onderbreken
+      a.pause(); a.currentTime = 0; a.muted = false;
+    }).catch(() => { a.muted = false; });
+  }
+}
+// Vangnet: elke aanraking ontgrendelt opnieuw (bv. als de start-tik niet volstond)
 ["pointerdown", "touchend", "keydown"].forEach((ev) =>
-  document.addEventListener(ev, () => { if (audioCtx && audioCtx.state !== "running") unlockAudio(); }, { passive: true })
+  document.addEventListener(ev, () => { if (!audioUnlocked) unlockAudio(); }, { passive: true })
 );
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && audioCtx && audioCtx.state !== "running") audioCtx.resume().catch(() => {});
-});
 
-function beep(freq = 880, dur = 0.2) {
-  if (!audioCtx) return;
-  if (audioCtx.state !== "running") audioCtx.resume().catch(() => {});
-  const o = audioCtx.createOscillator();
-  const g = audioCtx.createGain();
-  o.frequency.value = freq;
-  o.type = "square";
-  g.gain.value = 0.15;
-  o.connect(g).connect(audioCtx.destination);
-  o.start();
-  o.stop(audioCtx.currentTime + dur);
+function play(name) {
+  const a = getPlayer(name);
+  a.muted = false;
+  a.currentTime = 0;
+  a.play().catch((e) => console.warn("geluid geblokkeerd:", e));
 }
 function startAlarm() {
-  stopAlarm();
-  const tick = () => { beep(1000, 0.25); navigator.vibrate?.(250); };
-  tick();
-  alarmTimer = setInterval(tick, 500);
+  play("alarm");
+  navigator.vibrate?.([250, 250, 250, 250, 250, 250, 250, 250]);
 }
-function stopAlarm() { clearInterval(alarmTimer); alarmTimer = null; }
+function stopAlarm() {
+  const a = players.alarm;
+  if (a) { a.pause(); a.currentTime = 0; }
+  navigator.vibrate?.(0);
+}
+$("soundTest").onclick = () => { play("alarm"); setTimeout(stopAlarm, 1500); };
 
 // ---------- Testmodus / modelvergelijking ----------
 $("testToggle").onclick = () => { $("testPanel").classList.toggle("hidden"); renderTest(); };
