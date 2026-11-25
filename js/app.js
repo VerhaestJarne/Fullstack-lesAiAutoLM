@@ -79,8 +79,7 @@ $("startBtn").onclick = async () => {
   $("startBtn").disabled = true;
   $("startBtn").textContent = "Model laden…";
   try {
-    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-    audioCtx.resume();
+    unlockAudio(); // moet vóór de eerste await (nog binnen de tik)
 
     const lib = modelInfo.type === "pose" ? tmPose : tmImage;
     model = await lib.load(modelInfo.url + "model.json", modelInfo.url + "metadata.json");
@@ -114,6 +113,7 @@ $("startBtn").onclick = async () => {
 $("stopBtn").onclick = async () => {
   cancelAnimationFrame(rafId);
   stopAlarm();
+  stopKeepAlive();
   webcam?.stop();
   webcam?.webcam?.remove();
   try { await wakeLock?.release(); } catch {}
@@ -363,8 +363,51 @@ function flash(text, kind) {
 }
 
 // ---------- Geluid ----------
+// iOS (Safari én Chrome = WebKit) / Android:
+//  - Web Audio moet binnen een tik "ontgrendeld" worden met een echt geluid
+//  - de stille-modus-schakelaar dempt Web Audio, tenzij de audiosessie op
+//    "playback" staat → audioSession API (iOS 17+) + stille <audio>-loop (oudere iOS)
+//  - na schermvergrendeling/tabwissel staat de context op "interrupted"/"suspended"
+let keepAlive;
+function silentWavUrl() {
+  const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const str = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); str(8, "WAVEfmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 44100, true); v.setUint32(28, 88200, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36, "data"); v.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+}
+function unlockAudio() {
+  try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch {}
+  audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state !== "running") audioCtx.resume();
+  // Stil buffertje afspelen = ontgrendelen (moet synchroon in de tik gebeuren)
+  const src = audioCtx.createBufferSource();
+  src.buffer = audioCtx.createBuffer(1, 1, 22050);
+  src.connect(audioCtx.destination);
+  src.start(0);
+  // Stille loop via <audio> zet iOS in media-modus → ook geluid met stille schakelaar
+  if (!keepAlive) {
+    keepAlive = new Audio(silentWavUrl());
+    keepAlive.loop = true;
+    keepAlive.setAttribute("playsinline", "");
+  }
+  keepAlive.play().catch(() => {});
+}
+function stopKeepAlive() { keepAlive?.pause(); }
+// Elke aanraking opnieuw ontgrendelen (bv. na vergrendelen van het scherm)
+["pointerdown", "touchend", "keydown"].forEach((ev) =>
+  document.addEventListener(ev, () => { if (audioCtx && audioCtx.state !== "running") unlockAudio(); }, { passive: true })
+);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && audioCtx && audioCtx.state !== "running") audioCtx.resume().catch(() => {});
+});
+
 function beep(freq = 880, dur = 0.2) {
   if (!audioCtx) return;
+  if (audioCtx.state !== "running") audioCtx.resume().catch(() => {});
   const o = audioCtx.createOscillator();
   const g = audioCtx.createGain();
   o.frequency.value = freq;
