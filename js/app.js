@@ -378,7 +378,8 @@ const SOUNDS = {
 };
 const RATE = 22050;
 function makeWavUrl(pattern) {
-  const total = Math.round(pattern.reduce((a, [, d]) => a + d, 0) * RATE);
+  // Som van de afgeronde stukken (niet afronding van de som), anders schrijft de lus voorbij de buffer
+  const total = pattern.reduce((a, [, d]) => a + Math.round(d * RATE), 0);
   const buf = new ArrayBuffer(44 + total * 2), v = new DataView(buf);
   const str = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
   str(0, "RIFF"); v.setUint32(4, 36 + total * 2, true); str(8, "WAVEfmt ");
